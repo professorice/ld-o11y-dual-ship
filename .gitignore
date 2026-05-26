@@ -1,0 +1,34 @@
+# --- Secrets (copy .env.example to .env locally) ---
+.env
+.env.*
+!.env.example
+
+# --- Java / Maven ---
+java/target/
+java/lib/*.jar
+*.class
+
+# --- Go ---
+go/bin/
+go/ld-o11y-demo-go
+**/ld-o11y-demo-go
+
+# --- IDE / editor ---
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+*.swp
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Docker (local overrides only) ---
+docker-compose.override.yml
+
+# --- Logs ---
+*.log

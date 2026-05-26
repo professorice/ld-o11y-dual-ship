@@ -1,0 +1,18 @@
+# Datadog Agent — receives traces from the demo apps on localhost:8126 and dual-ships
+# to Datadog (DD_API_KEY) and LaunchDarkly (DD_APM_ADDITIONAL_ENDPOINTS).
+# See: https://launchdarkly.com/docs/home/observability/datadog-agent
+services:
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:7
+    container_name: ld-o11y-demo-datadog-agent
+    environment:
+      DD_API_KEY: ${DD_API_KEY:?Set DD_API_KEY in .env (any non-empty value works for LD-only; use a real key for Datadog dual-ship)}
+      DD_SITE: ${DD_SITE:-datadoghq.com}
+      DD_APM_ENABLED: "true"
+      DD_APM_NON_LOCAL_TRAFFIC: "true"
+      DD_APM_ADDITIONAL_ENDPOINTS: ${DD_APM_ADDITIONAL_ENDPOINTS:?Set LAUNCHDARKLY_CLIENT_SIDE_ID in .env (run.sh builds DD_APM_ADDITIONAL_ENDPOINTS)}
+      DD_TAGS: "launchdarkly.project_id:${LAUNCHDARKLY_CLIENT_SIDE_ID:?Set LAUNCHDARKLY_CLIENT_SIDE_ID in .env}"
+      DD_HOSTNAME: ld-o11y-demo-local
+      DD_LOGS_ENABLED: "false"
+    ports:
+      - "8126:8126"
