@@ -1,27 +1,45 @@
-# LaunchDarkly Monitoring trace demo (Datadog dual-ship)
+# LaunchDarkly + Datadog dual-ship observability demo
 
-Java and Go apps that emit a `feature_flag` **span event** on an OTel child span — the shape Flag Monitoring → Traces indexes.
+Working Java and Go reference implementations of the LaunchDarkly evaluation hook required to surface flag evaluations as Datadog APM traces and forward them to LaunchDarkly's Telemetry/Monitoring tab via the Datadog Agent's dual-ship feature.
+
+Implements the contract documented at <https://launchdarkly.com/docs/home/observability/datadog-agent#attaching-feature-flag-context-to-traces>.
 
 ## How telemetry flows
 
-This repo includes **tracing libraries** (Java `dd-java-agent.jar`, Go `dd-trace-go`). Those are **not** the Datadog Agent.
+The apps use the Datadog tracing libraries (Java `dd-java-agent.jar`, Go `dd-trace-go`). They send spans to the Datadog Agent on `localhost:8126`. The Agent dual-ships every trace to Datadog (`DD_API_KEY`) **and** to LaunchDarkly's intake (`DD_APM_ADDITIONAL_ENDPOINTS` + your LD project's client-side ID).
 
 ```text
-┌─────────────┐     spans      ┌──────────────────┐   dual-ship    ┌────────────┐
-│  Java / Go  │ ─────────────► │ Datadog Agent    │ ─────────────► │ Datadog    │
-│  demo apps  │  localhost:8126│ (Docker/local)   │                └────────────┘
-└─────────────┘                │                  │ ─────────────► ┌────────────┐
+┌─────────────┐     spans      ┌──────────────────┐   dual-ship    ┌─────────────┐
+│  Java / Go  │ ─────────────► │   Datadog Agent  │ ─────────────► │   Datadog   │
+│  demo apps  │  localhost:8126│   (Docker/local) │                └─────────────┘
+└─────────────┘                │                  │ ─────────────► ┌─────────────┐
                                └──────────────────┘                │ LaunchDarkly│
-                                                                   └────────────┘
+                                                                   └─────────────┘
 ```
 
-Per [LaunchDarkly’s Datadog Agent docs](https://launchdarkly.com/docs/home/observability/datadog-agent):
+`launchdarkly.project_id` rides along as a host tag on the Agent (`DD_TAGS`) and as an OTel resource attribute on the app (`OTEL_RESOURCE_ATTRIBUTES`, set by `scripts/run.sh`). The Agent uses it to route the trace to the correct LD project.
 
-1. Apps instrument requests and flag evaluations (Monitoring hooks in this repo).
-2. Tracers send spans to the **Datadog Agent** on `localhost:8126`.
-3. The **Agent** dual-ships to your Datadog account (`DD_API_KEY`) and LaunchDarkly (`DD_APM_ADDITIONAL_ENDPOINTS` + client-side ID).
+## The evaluation hook contract
 
-The `DD_APM_ADDITIONAL_ENDPOINTS` value in `.env` is applied to the **Agent** (via `docker-compose.yml`), not to the JVM/Go process. The Agent also gets host tag `launchdarkly.project_id` via `DD_TAGS`; apps set the same via `OTEL_RESOURCE_ATTRIBUTES` (see `scripts/run.sh`).
+Both `java/src/main/java/com/example/demo/MonitoringHook.java` and `go/monitoring_hook.go` start a child span on every flag evaluation with this shape:
+
+| Field | Value |
+|---|---|
+| Operation name | `feature_flag.evaluation` |
+| Resource name | the flag key, e.g. `bool-flag-core` |
+| Span type | `launchdarkly` |
+
+**Required tags** (LD-mandated names — note `feature_flag.contextKeys` is camelCase plural and holds a JSON object mapping context kind to key):
+
+| Tag | Value |
+|---|---|
+| `feature_flag.key` | the evaluated flag's key |
+| `feature_flag.context.id` | `LDContext.getFullyQualifiedKey()` |
+| `feature_flag.contextKeys` | JSON like `{"user":"demo-user"}` |
+| `feature_flag.provider.name` | `"LaunchDarkly"` |
+| `feature_flag.result.value` | string repr of the evaluated value |
+
+The hooks publish each datum twice: once under the canonical `feature_flag.*` names (what the LD docs prescribe and what Datadog APM displays on the span) and once mirrored under `events.feature_flag.*`, which is the path LD's trace index keys on for the filter below. The same `events.feature_flag.*` tags power the trace-derived signals that Guarded Rollouts can use as their monitoring metric.
 
 ## Prerequisites
 
@@ -30,8 +48,7 @@ The `DD_APM_ADDITIONAL_ENDPOINTS` value in `.env` is applied to the **Agent** (v
 | JDK | 21+ |
 | Maven | 3.9+ |
 | Go | 1.25+ |
-| Docker | for local Datadog Agent (recommended) |
-| curl | for downloading the Java tracer |
+| Docker | for the local Datadog Agent |
 
 ## Setup
 
@@ -39,20 +56,19 @@ The `DD_APM_ADDITIONAL_ENDPOINTS` value in `.env` is applied to the **Agent** (v
 cp .env.example .env
 # Edit: LAUNCHDARKLY_SDK_KEY, LAUNCHDARKLY_CLIENT_SIDE_ID, DD_API_KEY
 
-chmod +x run.sh
-./run.sh check
+./scripts/run.sh check
 ```
 
-Create boolean flag **`demo-flag`** in the same LaunchDarkly environment.
+Create a boolean flag named `bool-flag-core` (or change `FLAG_KEY` in the apps) in the same LaunchDarkly environment.
 
 ## Run
 
 ```bash
-./run.sh java   # port 8080
-./run.sh go     # port 8081
+./scripts/run.sh java   # builds and runs the Java demo on :8080
+./scripts/run.sh go     # runs the Go demo on :8081
 ```
 
-The first run starts the Datadog Agent in Docker automatically if nothing is listening on `localhost:8126`.
+The Datadog Agent is started automatically via Docker Compose on first invocation.
 
 ## Generate traffic
 
@@ -61,24 +77,18 @@ curl "http://localhost:8080/hello?user=demo-user"   # Java
 curl "http://localhost:8081/hello?user=demo-user"   # Go
 ```
 
-Wait a few minutes for data to appear.
+## Verify
 
-## Verify in Datadog
+**In Datadog** — open the `feature_flag.evaluation` span on the trace for `GET /hello`. The five `feature_flag.*` tags, resource name (flag key), and span type `launchdarkly` should all be present.
 
-On the OTel child span (`LDClient.boolVariationDetail`):
-
-- Event **`feature_flag`**
-- `feature_flag.key=demo-flag`
-- `feature_flag.result.value` set
-
-## Verify in LaunchDarkly
-
-Telemetry → Traces (or Flag → Monitoring → Traces):
+**In LaunchDarkly Telemetry → Traces** — filter on:
 
 ```text
-any_span(feature_flag.key=demo-flag)
+events.feature_flag.key=bool-flag-core
 ```
+
+The flag's **Monitoring → Traces** sub-page is populated from the same index. Once spans matching this filter start flowing, trace-derived metrics (P99/P95/avg latency, HTTP error rate) become available as Guarded Rollout signals when configuring a rollout on the flag.
 
 ## Logs
 
-This demo focuses on **traces**. Shipping **logs** to LaunchDarkly also requires the Datadog Agent log collection pipeline configured for dual-ship (`logs_dd_url` / additional log endpoints). See the [Datadog Agent ingestion](https://launchdarkly.com/docs/home/observability/datadog-agent) doc for log configuration.
+This demo focuses on **traces**. Shipping **logs** to LaunchDarkly also requires the Datadog Agent log-collection pipeline configured for dual-ship (`logs_dd_url` / additional log endpoints). See the [LaunchDarkly Datadog Agent ingestion doc](https://launchdarkly.com/docs/home/observability/datadog-agent) for log configuration.

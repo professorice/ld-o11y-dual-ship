@@ -1,17 +1,5 @@
 package com.example.demo;
 
-import com.launchdarkly.sdk.EvaluationDetail;
-import com.launchdarkly.sdk.LDContext;
-import com.launchdarkly.sdk.server.Components;
-import com.launchdarkly.sdk.server.LDClient;
-import com.launchdarkly.sdk.server.LDConfig;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
-import io.opentelemetry.api.GlobalOpenTelemetry;
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.api.trace.SpanKind;
-import io.opentelemetry.api.trace.Tracer;
-import io.opentelemetry.context.Scope;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -19,6 +7,20 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.concurrent.Executors;
+
+import com.launchdarkly.sdk.EvaluationDetail;
+import com.launchdarkly.sdk.LDContext;
+import com.launchdarkly.sdk.server.Components;
+import com.launchdarkly.sdk.server.LDClient;
+import com.launchdarkly.sdk.server.LDConfig;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
 
 public final class DemoApplication {
 
@@ -58,6 +60,7 @@ public final class DemoApplication {
     String user = queryParam(exchange.getRequestURI(), "user", "demo-user");
     LDContext context = LDContext.builder(user).kind("user").build();
 
+    // Explicit OTel SERVER span so MonitoringHook can parent its child span on Span.current().
     String spanName = exchange.getRequestMethod() + " " + exchange.getRequestURI().getPath();
     Span requestSpan = TRACER.spanBuilder(spanName).setSpanKind(SpanKind.SERVER).startSpan();
     try (Scope scope = requestSpan.makeCurrent()) {

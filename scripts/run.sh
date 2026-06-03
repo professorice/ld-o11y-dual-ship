@@ -198,7 +198,9 @@ cmd_java() {
   export DD_SERVICE="${DD_SERVICE_JAVA:-ld-o11y-demo-java}"
   cd "${ROOT}/java"
   mvn -q clean package -DskipTests
-  exec java -javaagent:"${DD_JAVA_AGENT}" -Ddd.service="${DD_SERVICE}" \
+  exec java -javaagent:"${DD_JAVA_AGENT}" \
+    -Ddd.service="${DD_SERVICE}" \
+    -Ddd.trace.otel.enabled=true \
     -jar target/ld-o11y-demo-java-1.0.0.jar
 }
 

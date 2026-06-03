@@ -20,7 +20,7 @@
       <artifactId>launchdarkly-java-server-sdk</artifactId>
       <version>7.13.4</version>
     </dependency>
-    <!-- OTel API only; Datadog agent provides the implementation when DD_TRACE_OTEL_ENABLED=true -->
+    <!-- OTel API; dd-java-agent bridges this to Datadog when dd.trace.otel.enabled=true -->
     <dependency>
       <groupId>io.opentelemetry</groupId>
       <artifactId>opentelemetry-api</artifactId>

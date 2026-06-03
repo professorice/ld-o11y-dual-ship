@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,63 +10,15 @@ import (
 
 	httptrace "github.com/DataDog/dd-trace-go/contrib/net/http/v2"
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
+	"github.com/joho/godotenv"
 	"github.com/launchdarkly/go-sdk-common/v3/ldcontext"
-	"github.com/launchdarkly/go-sdk-common/v3/ldreason"
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/ldhooks"
-	"go.opentelemetry.io/otel"
-	"github.com/joho/godotenv"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const flagKey = "demo-flag"
 
-type monitoringHook struct {
-	ldhooks.Unimplemented
-	metadata ldhooks.Metadata
-}
-
-func newMonitoringHook() monitoringHook {
-	return monitoringHook{metadata: ldhooks.NewMetadata("LaunchDarkly Monitoring Hook")}
-}
-
-func (h monitoringHook) Metadata() ldhooks.Metadata {
-	return h.metadata
-}
-
-func (h monitoringHook) BeforeEvaluation(
-	ctx context.Context,
-	seriesContext ldhooks.EvaluationSeriesContext,
-	data ldhooks.EvaluationSeriesData,
-) (ldhooks.EvaluationSeriesData, error) {
-	otelTracer := otel.Tracer("launchdarkly-client")
-	_, span := otelTracer.Start(ctx, seriesContext.Method())
-	return ldhooks.NewEvaluationSeriesBuilder(data).Set("monitoringSpan", span).Build(), nil
-}
-
-func (h monitoringHook) AfterEvaluation(
-	ctx context.Context,
-	seriesContext ldhooks.EvaluationSeriesContext,
-	data ldhooks.EvaluationSeriesData,
-	detail ldreason.EvaluationDetail,
-) (ldhooks.EvaluationSeriesData, error) {
-	if v, ok := data.Get("monitoringSpan"); ok {
-		if span, ok := v.(trace.Span); ok {
-			span.AddEvent("feature_flag", trace.WithAttributes(
-				attribute.String("feature_flag.key", seriesContext.FlagKey()),
-				attribute.String("feature_flag.provider.name", "LaunchDarkly"),
-				attribute.String("feature_flag.context.id", seriesContext.Context().FullyQualifiedKey()),
-				attribute.String("feature_flag.result.value", detail.Value.JSONString()),
-			))
-			span.End()
-		}
-	}
-	return data, nil
-}
-
 func loadEnv() {
-	// Repo root .env when running from go/, or local .env
 	_ = godotenv.Load(
 		".env",
 		"../.env",
